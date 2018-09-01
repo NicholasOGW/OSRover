@@ -13,10 +13,15 @@ namespace OS
     class Program
     {
         private static Mutex mutex = new Mutex();
-        private static AutoResetEvent DetectFound = new AutoResetEvent(false); 
-        private static AutoResetEvent DrillStart = new AutoResetEvent(false);
-        private static AutoResetEvent DrillFinish = new AutoResetEvent(false);
-        private static AutoResetEvent CleanerReady = new AutoResetEvent(false);
+        private static ManualResetEvent DetectFound = new ManualResetEvent(false);
+        private static ManualResetEvent DrillStart = new ManualResetEvent(false);
+        private static ManualResetEvent DrillFinish = new ManualResetEvent(true);
+        private static ManualResetEvent CleanerReady = new ManualResetEvent(false);
+        
+
+        private static readonly ManualResetEvent AllItemsCleaned = new ManualResetEvent(false);
+        private static int _numberOfItemsToBeCleaned = 5;
+        private static int _numberOfItemsCleaned = 0;
 
         static void Main(string[] args)
         {
@@ -24,18 +29,33 @@ namespace OS
             var drillThread = new Thread(Driller) { Name = "Driller" };
             var cleanThread = new Thread(Cleaner) { Name = "Cleaner" };
 
+
             
-            
+
                 detectThread.Start();
                 drillThread.Start();
                 cleanThread.Start();
 
-                
-                
+                AllItemsCleaned.WaitOne();
+            AllItemsCleaned.Reset();
+
+            Console.WriteLine("Main():\t\t Aborting Detector Thread...");
+            detectThread.Abort();
+            Console.WriteLine("Main():\t\t Aborting Driller Thread...");
+            drillThread.Abort();
+            Console.WriteLine("Main():\t\t Aborting Cleaner Thread...");
+            cleanThread.Abort();
+            Console.WriteLine("===============Program Ends Here===============");
+
+                return;
+            
+            
 
 
 
-            return;
+
+
+            
             
   
         }
@@ -43,28 +63,39 @@ namespace OS
         private static void Detector()
         {
 
-                mutex.WaitOne();                                            //checks if allowed to run 
-                Console.WriteLine("Detector:\t Detecting...");
+            while (true)
+            {
+                DrillFinish.WaitOne();     
+                mutex.WaitOne();          //checks if allowed to run 
+
+                if (_numberOfItemsCleaned == _numberOfItemsToBeCleaned )
+                {
+                    AllItemsCleaned.Set();
+                    mutex.ReleaseMutex();
+                    return;
+                }
+                Console.WriteLine("Detector():\t Detecting...");
 
                 Random rnd = new Random();                                  //RNG
                 int mineral = rnd.Next(0, 3);
 
                 while (mineral == 0)
                 {
-                    Console.WriteLine("Detector:\t No minerals found! Restarting Detection system...");
+                    Console.WriteLine("Detector():\t No minerals found! Restarting Detection system...");
 
-                    Console.WriteLine("Detector:\t Detecting...");
+                    Console.WriteLine("Detector():\t Detecting...");
 
 
                     mineral = rnd.Next(0, 3);
                 }
 
-                Console.WriteLine("Detector:\t {0} minerals found!", mineral);  //displays number of materials found
+                Console.WriteLine("Detector():\t {0} minerals found!", mineral);  //displays number of materials found
 
                 DetectFound.Set();                                              //signals DetectFound event to run
+                DrillFinish.Reset();
                 mutex.ReleaseMutex();                                           //releases to allow other threads to run
-            
-            
+
+            }
             
            
             
@@ -72,34 +103,46 @@ namespace OS
 
         private static void Driller()
         {
-            
 
+            while (true)
+            {
+
+
+
+                Console.WriteLine("Driller():\t Waiting for Detector...");
+                DetectFound.WaitOne();                                          //checks if materials are found
+                mutex.WaitOne();                                                //checks if allowed to run
+
+                if (_numberOfItemsCleaned == _numberOfItemsToBeCleaned)
                 {
-
-                    Console.WriteLine("Driller():\t Waiting for Detector...");
-                    DetectFound.WaitOne();                                          //checks if materials are found
-                    mutex.WaitOne();                                                //checks if allowed to run
-                    Console.WriteLine("Driller():\t Drilling...");
-                    DrillStart.Set();                                               //signals Cleaner() drilling has started
                     mutex.ReleaseMutex();
-                    CleanerReady.WaitOne();                                        //checks if Cleaner is Ready
-                    mutex.WaitOne();
-
-                    Console.WriteLine("Driller():\t Drilling Complete!");
-                    DrillFinish.Set();                                              //signals Cleaner() drilling has completed
-                    DetectFound.Reset();                                            //resets events
-                    CleanerReady.Reset();
-                    mutex.ReleaseMutex();
-
+                    return;
                 }
+
+                Console.WriteLine("Driller():\t Drilling...");
+                DrillStart.Set();                                               //signals Cleaner() drilling has started
+                mutex.ReleaseMutex();
+                CleanerReady.WaitOne();                                        //checks if Cleaner is Ready
+                mutex.WaitOne();
+
+                Console.WriteLine("Driller():\t Drilling Complete!");
+                DrillFinish.Set();                                              //signals Cleaner() drilling has completed
+                DetectFound.Reset();                                            //resets events
+                CleanerReady.Reset();
+                mutex.ReleaseMutex();
+            }
+                
             
             
             
         }
-                private static void Cleaner()
-                {
+        private static void Cleaner()
+        {
 
-          
+            while (true)
+            {
+
+                {
 
 
                     DrillStart.WaitOne();                                       //checks if drilling has started
@@ -111,17 +154,19 @@ namespace OS
                     mutex.WaitOne();
 
                     Console.WriteLine("Cleaner():\t Cleaning...");
+                    _numberOfItemsCleaned++;
+                    Console.WriteLine("Cleaner():\t Cleaning Complete!");
                     DrillFinish.Reset();
                     DrillStart.Reset();
                     mutex.ReleaseMutex();
 
-            
 
-                     
+
+
                 }
-            
-            
-            
+            }
+
+        }
         
     }
 }
